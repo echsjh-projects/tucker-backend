@@ -4,7 +4,7 @@ Scraper pipeline:
   2. For each un-scraped episode → download mp3 → transcribe via Groq Whisper
   3. NLP: tokenise, remove stopwords, count frequencies → save to DB
 """
-import re, time, logging, os, tempfile
+import re, time, logging, os, tempfile, asyncio
 import httpx
 import feedparser
 import nltk
@@ -16,7 +16,6 @@ import db
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-# ── NLTK setup ────────────────────────────────────────────────────────────────
 nltk.download("stopwords", quiet=True)
 nltk.download("punkt", quiet=True)
 STOPWORDS = set(stopwords.words("english"))
@@ -42,7 +41,6 @@ HEADERS = {
     )
 }
 
-# ── Groq client ───────────────────────────────────────────────────────────────
 def get_groq_client():
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
@@ -50,9 +48,7 @@ def get_groq_client():
     return Groq(api_key=api_key)
 
 
-# ── Step 1: RSS ───────────────────────────────────────────────────────────────
-
-def fetch_rss_episodes():
+async def fetch_rss_episodes():
     log.info("Fetching RSS feed...")
     feed = feedparser.parse(RSS_URL)
     saved = 0
@@ -60,28 +56,18 @@ def fetch_rss_episodes():
         title = entry.get("title", "").strip()
         pub_date = entry.get("published", "")
         description = entry.get("summary", "")[:500]
-
-        # Get mp3 URL from links (feedparser stores enclosures under links)
         mp3_url = None
         for link in entry.get("links", []):
             if link.get("rel") == "enclosure" and "audio" in link.get("type", ""):
                 mp3_url = link["href"]
                 break
-
         if mp3_url:
-            db.upsert_episode(title, pub_date, description, mp3_url)
+            await db.upsert_episode(title, pub_date, description, mp3_url)
             saved += 1
-
     log.info(f"RSS: upserted {saved} episodes")
 
 
-# ── Step 2: Download mp3 ──────────────────────────────────────────────────────
-
-def download_audio(mp3_url: str, max_mb: int = 25) -> str | None:
-    """
-    Download mp3 to a temp file. Returns file path or None on failure.
-    Groq Whisper free tier limit is 25MB per request.
-    """
+def download_audio(mp3_url: str, max_mb: int = 25):
     try:
         log.info(f"Downloading audio: {mp3_url}")
         with httpx.Client(headers=HEADERS, timeout=120, follow_redirects=True) as client:
@@ -89,30 +75,19 @@ def download_audio(mp3_url: str, max_mb: int = 25) -> str | None:
         if resp.status_code != 200:
             log.warning(f"Audio download failed: HTTP {resp.status_code}")
             return None
-
         size_mb = len(resp.content) / (1024 * 1024)
         log.info(f"Downloaded {size_mb:.1f} MB")
-
-        if size_mb > max_mb:
-            log.warning(f"File too large ({size_mb:.1f} MB), truncating to {max_mb} MB")
-            content = resp.content[:max_mb * 1024 * 1024]
-        else:
-            content = resp.content
-
+        content = resp.content[:max_mb * 1024 * 1024] if size_mb > max_mb else resp.content
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
         tmp.write(content)
         tmp.close()
         return tmp.name
-
     except Exception as e:
         log.error(f"Download error: {e}")
         return None
 
 
-# ── Step 3: Transcribe via Groq Whisper ───────────────────────────────────────
-
-def transcribe_audio(file_path: str) -> str | None:
-    """Send audio file to Groq Whisper, return transcript text."""
+def transcribe_audio(file_path: str):
     try:
         client = get_groq_client()
         with open(file_path, "rb") as f:
@@ -133,20 +108,15 @@ def transcribe_audio(file_path: str) -> str | None:
             pass
 
 
-# ── Step 4: NLP ───────────────────────────────────────────────────────────────
-
 def compute_word_freq(text: str) -> dict:
-    """Tokenise, strip stopwords, return word→count dict."""
     tokens = re.findall(r"\b[a-z]{3,}\b", text.lower())
     filtered = [t for t in tokens if t not in STOPWORDS]
     return dict(Counter(filtered))
 
 
-# ── Main pipeline ─────────────────────────────────────────────────────────────
-
-def run_full_scrape():
-    fetch_rss_episodes()
-    episodes = db.get_unscraped_episodes()
+async def run_full_scrape():
+    await fetch_rss_episodes()
+    episodes = await db.get_unscraped_episodes()
     log.info(f"Episodes to transcribe: {len(episodes)}")
 
     for ep in episodes:
@@ -154,28 +124,23 @@ def run_full_scrape():
         mp3_url = ep["transcript_url"]
         log.info(f"Processing episode {ep_id}")
 
-        # Download
-        audio_path = download_audio(mp3_url)
+        audio_path = await asyncio.to_thread(download_audio, mp3_url)
         if not audio_path:
             log.warning(f"Could not download episode {ep_id}, skipping")
-            db.save_transcript(ep_id, "", {})
-            time.sleep(2)
+            await db.save_transcript(ep_id, "", {})
+            await asyncio.sleep(2)
             continue
 
-        # Transcribe
-        text = transcribe_audio(audio_path)
+        text = await asyncio.to_thread(transcribe_audio, audio_path)
         if not text:
             log.warning(f"Could not transcribe episode {ep_id}, skipping")
-            db.save_transcript(ep_id, "", {})
-            time.sleep(2)
+            await db.save_transcript(ep_id, "", {})
+            await asyncio.sleep(2)
             continue
 
-        # NLP
         word_counts = compute_word_freq(text)
-        db.save_transcript(ep_id, text, word_counts)
+        await db.save_transcript(ep_id, text, word_counts)
         log.info(f"  → {len(word_counts)} unique words saved")
-
-        # Groq free tier: be polite between requests
-        time.sleep(3)
+        await asyncio.sleep(3)
 
     log.info("Scrape complete.")
