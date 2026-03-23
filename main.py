@@ -5,7 +5,7 @@ import db, scraper
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    db.init_db()
+    await db.init_db()
     yield
 
 app = FastAPI(title="Tucker Carlson Word Frequency API", lifespan=lifespan)
@@ -17,76 +17,61 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Episodes ────────────────────────────────────────────────────────────────
+# ── Episodes ─────────────────────────────────────────────────────────────────
 
 @app.get("/episodes")
-def list_episodes():
-    """Return all episodes ordered by publish date desc."""
-    return db.get_episodes()
+async def list_episodes():
+    return await db.get_episodes()
 
 @app.post("/episodes/fetch")
-def fetch_episodes(background_tasks: BackgroundTasks):
-    """Trigger RSS + transcript scrape in background."""
+async def fetch_episodes(background_tasks: BackgroundTasks):
     background_tasks.add_task(scraper.run_full_scrape)
     return {"status": "scrape started"}
 
 @app.get("/episodes/{episode_id}")
-def get_episode(episode_id: int):
-    ep = db.get_episode(episode_id)
+async def get_episode(episode_id: int):
+    ep = await db.get_episode(episode_id)
     if not ep:
         raise HTTPException(404, "Episode not found")
     return ep
 
-# ── Word frequency ───────────────────────────────────────────────────────────
+# ── Word frequency ────────────────────────────────────────────────────────────
 
 @app.get("/words/global")
-def global_word_freq(limit: int = 50):
-    """Top N words across ALL episodes."""
-    return db.global_word_freq(limit)
+async def global_word_freq(limit: int = 50):
+    return await db.global_word_freq(limit)
 
 @app.get("/words/episode/{episode_id}")
-def episode_word_freq(episode_id: int, limit: int = 50):
-    """Top N words for a single episode."""
-    return db.episode_word_freq(episode_id, limit)
+async def episode_word_freq(episode_id: int, limit: int = 50):
+    return await db.episode_word_freq(episode_id, limit)
 
 @app.get("/words/track")
-def track_word(word: str):
-    """Frequency of a specific word across every episode (timeline)."""
-    return db.track_word(word.lower().strip())
+async def track_word(word: str):
+    return await db.track_word(word.lower().strip())
+
+# ── Admin ─────────────────────────────────────────────────────────────────────
 
 @app.post("/admin/reset")
-def reset_scraped():
-    """Mark all episodes as un-scraped so they get re-processed."""
-    with db._conn() as c:
-        c.execute("UPDATE episodes SET scraped=0")
-        c.execute("DELETE FROM word_freq")
+async def reset_scraped():
+    await db.reset_scraped()
     return {"status": "reset complete"}
 
 @app.post("/admin/nuke")
-def nuke_db():
-    """Wipe all data and reinitialise — use when schema needs a clean start."""
-    with db._conn() as c:
-        c.executescript("""
-        DROP TABLE IF EXISTS word_freq;
-        DROP TABLE IF EXISTS episodes;
-        """)
-    db.init_db()
+async def nuke_db():
+    await db.nuke_db()
+    await db.init_db()
     return {"status": "database wiped and reinitialised"}
 
 @app.get("/admin/debug-rss")
-def debug_rss():
-    """Check what feedparser sees from the RSS feed."""
+async def debug_rss():
     import feedparser
     feed = feedparser.parse("https://feeds.megaphone.fm/RSV1597324942")
     return {
         "status": feed.get("status", "no status"),
-        "bozo": feed.get("bozo", None),
-        "bozo_exception": str(feed.get("bozo_exception", "")),
         "entry_count": len(feed.entries),
-        "first_entry": dict(feed.entries[0]) if feed.entries else None,
-        "feed_title": feed.feed.get("title", "no title"),
+        "first_entry_title": feed.entries[0].get("title") if feed.entries else None,
     }
 
 @app.get("/health")
-def health():
+async def health():
     return {"ok": True}
