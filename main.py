@@ -73,6 +73,20 @@ def nuke_db():
     db.init_db()
     return {"status": "database wiped and reinitialised"}
 
+@app.get("/admin/debug-rss")
+def debug_rss():
+    """Check what feedparser sees from the RSS feed."""
+    import feedparser
+    feed = feedparser.parse("https://feeds.megaphone.fm/RSV1597324942")
+    return {
+        "status": feed.get("status", "no status"),
+        "bozo": feed.get("bozo", None),
+        "bozo_exception": str(feed.get("bozo_exception", "")),
+        "entry_count": len(feed.entries),
+        "first_entry": dict(feed.entries[0]) if feed.entries else None,
+        "feed_title": feed.feed.get("title", "no title"),
+    }
+
 @app.get("/health")
 def health():
     return {"ok": True}
