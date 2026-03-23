@@ -59,7 +59,8 @@ def fetch_rss_episodes():
         description = entry.get("summary", "")[:500]
         # Build HappyScribe URL from slug
         slug = _slugify(title)
-        transcript_url = f"{HAPPYSCRIBE_BASE}/{slug}" if slug else None
+        #transcript_url = f"{HAPPYSCRIBE_BASE}/{slug}" if slug else None
+        transcript_url = f"{PODSCRIBE_BASE}/{slug}" if slug else None
         if transcript_url:
             db.upsert_episode(title, pub_date, description, transcript_url)
             saved += 1
