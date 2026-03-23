@@ -44,12 +44,8 @@ def init_db():
 def upsert_episode(title, pub_date, description, transcript_url):
     with _conn() as c:
         c.execute("""
-        INSERT INTO episodes (title, pub_date, description, transcript_url)
+        INSERT OR IGNORE INTO episodes (title, pub_date, description, transcript_url)
         VALUES (?,?,?,?)
-        ON CONFLICT(transcript_url) DO UPDATE SET
-            title=excluded.title,
-            pub_date=excluded.pub_date,
-            description=excluded.description
         """, (title, pub_date, description, transcript_url))
 
 
