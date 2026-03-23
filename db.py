@@ -1,124 +1,149 @@
 """
-SQLite database layer.
+Database layer - PostgreSQL via Supabase.
 Schema:
   episodes  (id, title, pub_date, description, transcript_url, transcript_text, scraped)
   word_freq (id, episode_id, word, count)
 """
-import sqlite3, os
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
-DB_PATH = os.getenv("DB_PATH", "tucker.db")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 
 def _conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
     return conn
 
 
 def init_db():
-    with _conn() as c:
-        c.executescript("""
-        CREATE TABLE IF NOT EXISTS episodes (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            title           TEXT NOT NULL,
-            pub_date        TEXT,
-            description     TEXT,
-            transcript_url  TEXT UNIQUE,
-            transcript_text TEXT,
-            scraped         INTEGER DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS word_freq (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            episode_id  INTEGER NOT NULL REFERENCES episodes(id),
-            word        TEXT NOT NULL,
-            count       INTEGER NOT NULL,
-            UNIQUE(episode_id, word)
-        );
-        CREATE INDEX IF NOT EXISTS idx_wf_word ON word_freq(word);
-        CREATE INDEX IF NOT EXISTS idx_wf_ep   ON word_freq(episode_id);
-        """)
+    with _conn() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+            CREATE TABLE IF NOT EXISTS episodes (
+                id              SERIAL PRIMARY KEY,
+                title           TEXT NOT NULL,
+                pub_date        TEXT,
+                description     TEXT,
+                transcript_url  TEXT UNIQUE,
+                transcript_text TEXT,
+                scraped         INTEGER DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS word_freq (
+                id          SERIAL PRIMARY KEY,
+                episode_id  INTEGER NOT NULL REFERENCES episodes(id),
+                word        TEXT NOT NULL,
+                count       INTEGER NOT NULL,
+                UNIQUE(episode_id, word)
+            );
+            CREATE INDEX IF NOT EXISTS idx_wf_word ON word_freq(word);
+            CREATE INDEX IF NOT EXISTS idx_wf_ep   ON word_freq(episode_id);
+            """)
+        conn.commit()
 
 
-# ── Episodes ─────────────────────────────────────────────────────────────────
+# ── Episodes ──────────────────────────────────────────────────────────────────
 
 def upsert_episode(title, pub_date, description, transcript_url):
-    with _conn() as c:
-        c.execute("""
-        INSERT OR IGNORE INTO episodes (title, pub_date, description, transcript_url)
-        VALUES (?,?,?,?)
-        """, (title, pub_date, description, transcript_url))
+    with _conn() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+            INSERT INTO episodes (title, pub_date, description, transcript_url)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (transcript_url) DO NOTHING
+            """, (title, pub_date, description, transcript_url))
+        conn.commit()
 
 
 def get_unscraped_episodes():
-    with _conn() as c:
-        rows = c.execute(
-            "SELECT id, transcript_url FROM episodes WHERE scraped=0 AND transcript_url IS NOT NULL"
-        ).fetchall()
+    with _conn() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+            SELECT id, transcript_url FROM episodes
+            WHERE scraped=0 AND transcript_url IS NOT NULL
+            """)
+            rows = c.fetchall()
     return [dict(r) for r in rows]
 
 
 def save_transcript(episode_id, text, word_counts: dict):
-    with _conn() as c:
-        c.execute(
-            "UPDATE episodes SET transcript_text=?, scraped=1 WHERE id=?",
-            (text, episode_id)
-        )
-        c.executemany(
-            "INSERT OR REPLACE INTO word_freq (episode_id, word, count) VALUES (?,?,?)",
-            [(episode_id, w, cnt) for w, cnt in word_counts.items()]
-        )
+    with _conn() as conn:
+        with conn.cursor() as c:
+            c.execute(
+                "UPDATE episodes SET transcript_text=%s, scraped=1 WHERE id=%s",
+                (text, episode_id)
+            )
+            if word_counts:
+                from psycopg2.extras import execute_values
+                execute_values(c,
+                    "INSERT INTO word_freq (episode_id, word, count) VALUES %s "
+                    "ON CONFLICT (episode_id, word) DO UPDATE SET count=EXCLUDED.count",
+                    [(episode_id, w, cnt) for w, cnt in word_counts.items()]
+                )
+        conn.commit()
 
 
 def get_episodes():
-    with _conn() as c:
-        rows = c.execute(
-            "SELECT id, title, pub_date, description, scraped FROM episodes ORDER BY pub_date DESC"
-        ).fetchall()
+    with _conn() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+            SELECT id, title, pub_date, description, scraped
+            FROM episodes ORDER BY pub_date DESC
+            """)
+            rows = c.fetchall()
     return [dict(r) for r in rows]
 
 
 def get_episode(episode_id):
-    with _conn() as c:
-        row = c.execute(
-            "SELECT id, title, pub_date, description, scraped FROM episodes WHERE id=?",
-            (episode_id,)
-        ).fetchone()
+    with _conn() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+            SELECT id, title, pub_date, description, scraped
+            FROM episodes WHERE id=%s
+            """, (episode_id,))
+            row = c.fetchone()
     return dict(row) if row else None
 
 
 # ── Word frequency ────────────────────────────────────────────────────────────
 
 def global_word_freq(limit=50):
-    with _conn() as c:
-        rows = c.execute("""
-        SELECT word, SUM(count) AS total
-        FROM word_freq
-        GROUP BY word
-        ORDER BY total DESC
-        LIMIT ?
-        """, (limit,)).fetchall()
+    with _conn() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+            SELECT word, SUM(count) AS total
+            FROM word_freq
+            GROUP BY word
+            ORDER BY total DESC
+            LIMIT %s
+            """, (limit,))
+            rows = c.fetchall()
     return [{"word": r["word"], "count": r["total"]} for r in rows]
 
 
 def episode_word_freq(episode_id, limit=50):
-    with _conn() as c:
-        rows = c.execute("""
-        SELECT word, count FROM word_freq
-        WHERE episode_id=?
-        ORDER BY count DESC
-        LIMIT ?
-        """, (episode_id, limit)).fetchall()
+    with _conn() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+            SELECT word, count FROM word_freq
+            WHERE episode_id=%s
+            ORDER BY count DESC
+            LIMIT %s
+            """, (episode_id, limit))
+            rows = c.fetchall()
     return [{"word": r["word"], "count": r["count"]} for r in rows]
 
 
 def track_word(word):
-    with _conn() as c:
-        rows = c.execute("""
-        SELECT e.id, e.title, e.pub_date, COALESCE(wf.count,0) AS count
-        FROM episodes e
-        LEFT JOIN word_freq wf ON wf.episode_id=e.id AND wf.word=?
-        WHERE e.scraped=1
-        ORDER BY e.pub_date ASC
-        """, (word,)).fetchall()
+    with _conn() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+            SELECT e.id, e.title, e.pub_date, COALESCE(wf.count,0) AS count
+            FROM episodes e
+            LEFT JOIN word_freq wf ON wf.episode_id=e.id AND wf.word=%s
+            WHERE e.scraped=1
+            ORDER BY e.pub_date ASC
+            """, (word,))
+            rows = c.fetchall()
     return [{"episode_id": r["id"], "title": r["title"],
              "pub_date": r["pub_date"], "count": r["count"]} for r in rows]
