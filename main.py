@@ -62,6 +62,17 @@ def reset_scraped():
         c.execute("DELETE FROM word_freq")
     return {"status": "reset complete"}
 
+@app.post("/admin/nuke")
+def nuke_db():
+    """Wipe all data and reinitialise — use when schema needs a clean start."""
+    with db._conn() as c:
+        c.executescript("""
+        DROP TABLE IF EXISTS word_freq;
+        DROP TABLE IF EXISTS episodes;
+        """)
+    db.init_db()
+    return {"status": "database wiped and reinitialised"}
+
 @app.get("/health")
 def health():
     return {"ok": True}
