@@ -35,7 +35,8 @@ EXTRA_STOP = {
 STOPWORDS |= EXTRA_STOP
 
 RSS_URL = "https://feeds.megaphone.fm/RSV1597324942"
-HAPPYSCRIBE_BASE = "https://podcasts.happyscribe.com/the-tucker-carlson-show"
+#HAPPYSCRIBE_BASE = "https://podcasts.happyscribe.com/the-tucker-carlson-show"
+PODSCRIBE_BASE = "https://app.podscribe.com/series/2333890/episodes"
 
 HEADERS = {
     "User-Agent": (
