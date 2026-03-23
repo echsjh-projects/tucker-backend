@@ -148,6 +148,6 @@ def run_full_scrape():
         word_counts = compute_word_freq(text)
         db.save_transcript(ep_id, text, word_counts)
         log.info(f"  → {len(word_counts)} unique words saved")
-        time.sleep(3)
+        time.sleep(30)
 
     log.info("Scrape complete.")
