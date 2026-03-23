@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: tucker-backend
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DB_PATH
+        value: /opt/render/project/src/tucker.db
+    disk:
+      name: tucker-db
+      mountPath: /opt/render/project/src
+      sizeGB: 1
