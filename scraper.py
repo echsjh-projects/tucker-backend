@@ -90,8 +90,8 @@ def scrape_transcript(url: str) -> str | None:
         # HappyScribe wraps transcript text in .transcript-text or similar
         # Try multiple selectors in order of specificity
         for selector in [
-            ".transcript-text",
             "[class*='transcript']",
+            ".episode-transcript",
             "article",
             "main",
         ]:
