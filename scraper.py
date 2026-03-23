@@ -34,9 +34,8 @@ EXTRA_STOP = {
 }
 STOPWORDS |= EXTRA_STOP
 
-RSS_URL = "https://feeds.megaphone.fm/RSV1597324942"
-#HAPPYSCRIBE_BASE = "https://podcasts.happyscribe.com/the-tucker-carlson-show"
-PODSCRIBE_BASE = "https://app.podscribe.com/series/2333890/episodes"
+RSS_URL = "https://feeds.megaphone.fm/ADL9840290619"
+HAPPYSCRIBE_BASE = "https://podcasts.happyscribe.com/the-tucker-carlson-show"
 
 HEADERS = {
     "User-Agent": (
@@ -59,8 +58,7 @@ def fetch_rss_episodes():
         description = entry.get("summary", "")[:500]
         # Build HappyScribe URL from slug
         slug = _slugify(title)
-        #transcript_url = f"{HAPPYSCRIBE_BASE}/{slug}" if slug else None
-        transcript_url = f"{PODSCRIBE_BASE}/{slug}" if slug else None
+        transcript_url = f"{HAPPYSCRIBE_BASE}/{slug}" if slug else None
         if transcript_url:
             db.upsert_episode(title, pub_date, description, transcript_url)
             saved += 1
@@ -90,8 +88,8 @@ def scrape_transcript(url: str) -> str | None:
         # HappyScribe wraps transcript text in .transcript-text or similar
         # Try multiple selectors in order of specificity
         for selector in [
+            ".transcript-text",
             "[class*='transcript']",
-            ".episode-transcript",
             "article",
             "main",
         ]:
