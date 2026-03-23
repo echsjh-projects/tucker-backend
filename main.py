@@ -66,6 +66,15 @@ def debug_rss():
         "first_entry_title": feed.entries[0].get("title") if feed.entries else None,
     }
 
+@app.get("/admin/test-db")
+def test_db():
+    try:
+        conn = db._conn()
+        conn.close()
+        return {"status": "db connection ok"}
+    except Exception as e:
+        return {"status": "db connection FAILED", "error": str(e)}
+
 @app.get("/health")
 def health():
     return {"ok": True}
