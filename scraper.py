@@ -88,24 +88,31 @@ def download_audio(mp3_url: str, max_mb: int = 25):
 
 
 def transcribe_audio(file_path: str):
-    try:
-        client = get_groq_client()
-        with open(file_path, "rb") as f:
-            result = client.audio.transcriptions.create(
-                file=(os.path.basename(file_path), f),
-                model="whisper-large-v3",
-                response_format="text",
-                language="en",
-            )
-        return result if isinstance(result, str) else result.text
-    except Exception as e:
-        log.error(f"Groq transcription error: {e}")
-        return None
-    finally:
+    import time
+    client = get_groq_client()
+    for attempt in range(3):
         try:
-            os.unlink(file_path)
-        except Exception:
-            pass
+            with open(file_path, "rb") as f:
+                result = client.audio.transcriptions.create(
+                    file=(os.path.basename(file_path), f),
+                    model="whisper-large-v3",
+                    response_format="text",
+                    language="en",
+                )
+            return result if isinstance(result, str) else result.text
+        except Exception as e:
+            if "429" in str(e):
+                wait = 300  # wait 5 minutes then retry
+                log.warning(f"Rate limit hit, waiting {wait}s before retry...")
+                time.sleep(wait)
+            else:
+                log.error(f"Groq transcription error: {e}")
+                return None
+    return None
+    try:
+        os.unlink(file_path)
+    except Exception:
+        pass
 
 
 def compute_word_freq(text: str) -> dict:
