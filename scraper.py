@@ -4,7 +4,7 @@ Scraper pipeline:
   2. For each un-scraped episode → download mp3 → transcribe via Groq Whisper
   3. NLP: tokenise, remove stopwords, count frequencies → save to DB
 """
-import re, time, logging, os, tempfile, asyncio
+import re, time, logging, os, tempfile
 import httpx
 import feedparser
 import nltk
@@ -48,7 +48,7 @@ def get_groq_client():
     return Groq(api_key=api_key)
 
 
-async def fetch_rss_episodes():
+def fetch_rss_episodes():
     log.info("Fetching RSS feed...")
     feed = feedparser.parse(RSS_URL)
     saved = 0
@@ -62,7 +62,7 @@ async def fetch_rss_episodes():
                 mp3_url = link["href"]
                 break
         if mp3_url:
-            await db.upsert_episode(title, pub_date, description, mp3_url)
+            db.upsert_episode(title, pub_date, description, mp3_url)
             saved += 1
     log.info(f"RSS: upserted {saved} episodes")
 
@@ -114,9 +114,9 @@ def compute_word_freq(text: str) -> dict:
     return dict(Counter(filtered))
 
 
-async def run_full_scrape():
-    await fetch_rss_episodes()
-    episodes = await db.get_unscraped_episodes()
+def run_full_scrape():
+    fetch_rss_episodes()
+    episodes = db.get_unscraped_episodes()
     log.info(f"Episodes to transcribe: {len(episodes)}")
 
     for ep in episodes:
@@ -124,23 +124,23 @@ async def run_full_scrape():
         mp3_url = ep["transcript_url"]
         log.info(f"Processing episode {ep_id}")
 
-        audio_path = await asyncio.to_thread(download_audio, mp3_url)
+        audio_path = download_audio(mp3_url)
         if not audio_path:
             log.warning(f"Could not download episode {ep_id}, skipping")
-            await db.save_transcript(ep_id, "", {})
-            await asyncio.sleep(2)
+            db.save_transcript(ep_id, "", {})
+            time.sleep(2)
             continue
 
-        text = await asyncio.to_thread(transcribe_audio, audio_path)
+        text = transcribe_audio(audio_path)
         if not text:
             log.warning(f"Could not transcribe episode {ep_id}, skipping")
-            await db.save_transcript(ep_id, "", {})
-            await asyncio.sleep(2)
+            db.save_transcript(ep_id, "", {})
+            time.sleep(2)
             continue
 
         word_counts = compute_word_freq(text)
-        await db.save_transcript(ep_id, text, word_counts)
+        db.save_transcript(ep_id, text, word_counts)
         log.info(f"  → {len(word_counts)} unique words saved")
-        await asyncio.sleep(3)
+        time.sleep(3)
 
     log.info("Scrape complete.")
