@@ -54,6 +54,14 @@ def track_word(word: str):
     """Frequency of a specific word across every episode (timeline)."""
     return db.track_word(word.lower().strip())
 
+@app.post("/admin/reset")
+def reset_scraped():
+    """Mark all episodes as un-scraped so they get re-processed."""
+    with db._conn() as c:
+        c.execute("UPDATE episodes SET scraped=0")
+        c.execute("DELETE FROM word_freq")
+    return {"status": "reset complete"}
+
 @app.get("/health")
 def health():
     return {"ok": True}
