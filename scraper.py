@@ -70,17 +70,24 @@ def fetch_rss_episodes():
 def download_audio(mp3_url: str, max_mb: int = 25):
     try:
         log.info(f"Downloading audio: {mp3_url}")
-        with httpx.Client(headers=HEADERS, timeout=120, follow_redirects=True) as client:
-            resp = client.get(mp3_url)
-        if resp.status_code != 200:
-            log.warning(f"Audio download failed: HTTP {resp.status_code}")
-            return None
-        size_mb = len(resp.content) / (1024 * 1024)
-        log.info(f"Downloaded {size_mb:.1f} MB")
-        content = resp.content[:max_mb * 1024 * 1024] if size_mb > max_mb else resp.content
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-        tmp.write(content)
+        max_bytes = max_mb * 1024 * 1024
+        downloaded = 0
+        with httpx.Client(headers=HEADERS, timeout=120, follow_redirects=True) as client:
+            with client.stream("GET", mp3_url) as resp:
+                if resp.status_code != 200:
+                    log.warning(f"Audio download failed: HTTP {resp.status_code}")
+                    tmp.close()
+                    os.unlink(tmp.name)
+                    return None
+                for chunk in resp.iter_bytes(chunk_size=1024 * 64):
+                    tmp.write(chunk)
+                    downloaded += len(chunk)
+                    if downloaded >= max_bytes:
+                        log.info(f"Reached {max_mb}MB limit, stopping download")
+                        break
         tmp.close()
+        log.info(f"Downloaded {downloaded / (1024*1024):.1f} MB")
         return tmp.name
     except Exception as e:
         log.error(f"Download error: {e}")
