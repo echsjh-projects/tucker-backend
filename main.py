@@ -75,6 +75,6 @@ def test_db():
     except Exception as e:
         return {"status": "db connection FAILED", "error": str(e)}
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return {"ok": True}
