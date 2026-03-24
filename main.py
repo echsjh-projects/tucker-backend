@@ -75,6 +75,14 @@ def test_db():
     except Exception as e:
         return {"status": "db connection FAILED", "error": str(e)}
 
+@app.get("/admin/stats")
+def stats():
+    with db._conn() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT COUNT(*) as total, SUM(CASE WHEN scraped=1 THEN 1 ELSE 0 END) as done FROM episodes")
+            row = c.fetchone()
+    return {"total": row["total"], "transcribed": row["done"], "remaining": row["total"] - row["done"]}
+
 @app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return {"ok": True}
