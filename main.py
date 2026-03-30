@@ -98,6 +98,19 @@ def stats():
             row = c.fetchone()
     return {"total": row["total"], "transcribed": row["done"], "remaining": row["total"] - row["done"]}
 
+@app.post("/admin/retry-empty")
+def retry_empty():
+    with db._conn() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+            UPDATE episodes SET scraped=0
+            WHERE scraped=1 AND id NOT IN (
+                SELECT DISTINCT episode_id FROM word_freq
+            )
+            """)
+        conn.commit()
+    return {"status": "empty episodes queued for retry"}
+
 @app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return {"ok": True}
