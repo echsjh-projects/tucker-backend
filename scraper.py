@@ -121,12 +121,32 @@ def transcribe_audio(file_path: str):
     except Exception:
         pass
 
-
+'''
 def compute_word_freq(text: str) -> dict:
     tokens = re.findall(r"\b[a-z]{3,}\b", text.lower())
     filtered = [t for t in tokens if t not in STOPWORDS]
     return dict(Counter(filtered))
-
+'''
+def compute_word_freq(text: str) -> dict:
+    # Clean text - remove URLs and non-alphabetic noise
+    text = re.sub(r'http\S+|www\S+', ' ', text.lower())
+    text = re.sub(r'\b\w*\d\w*\b', ' ', text)  # remove tokens with numbers
+    
+    tokens = re.findall(r"\b[a-z]{3,}\b", text)
+    filtered = [t for t in tokens if t not in STOPWORDS]
+    
+    # Unigram counts
+    counts = Counter(filtered)
+    
+    # Bigram counts (two-word phrases)
+    bigrams = zip(filtered, filtered[1:])
+    bigram_counts = Counter(f"{a} {b}" for a, b in bigrams)
+    
+    # Only keep bigrams that appear 3+ times
+    significant_bigrams = {k: v for k, v in bigram_counts.items() if v >= 3}
+    
+    counts.update(significant_bigrams)
+    return dict(counts)
 
 def run_full_scrape():
     fetch_rss_episodes()
