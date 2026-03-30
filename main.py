@@ -17,9 +17,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+'''
 @app.get("/episodes")
 def list_episodes():
     return db.get_episodes()
+'''
+@app.get("/episodes")
+def list_episodes():
+    with db._conn() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+            SELECT e.id, e.title, e.pub_date, e.description, e.scraped,
+                   COUNT(wf.id) as word_count
+            FROM episodes e
+            LEFT JOIN word_freq wf ON wf.episode_id = e.id
+            GROUP BY e.id
+            ORDER BY e.pub_date DESC
+            """)
+            return [dict(r) for r in c.fetchall()]
 
 @app.post("/episodes/fetch")
 def fetch_episodes(background_tasks: BackgroundTasks):
