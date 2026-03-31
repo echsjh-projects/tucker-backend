@@ -17,11 +17,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-'''
-@app.get("/episodes")
-def list_episodes():
-    return db.get_episodes()
-'''
 @app.get("/episodes")
 def list_episodes():
     with db._conn() as conn:
