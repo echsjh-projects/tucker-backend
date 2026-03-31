@@ -145,7 +145,7 @@ def track_word(word):
             FROM episodes e
             LEFT JOIN word_freq wf ON wf.episode_id=e.id AND wf.word=%s
             WHERE e.scraped=1
-            ORDER BY e.pub_date ASC
+            ORDER BY TO_TIMESTAMP(e.pub_date, 'Dy, DD Mon YYYY HH24:MI:SS OF') ASC
             """, (word,))
             return [{"episode_id": r["id"], "title": r["title"],
                      "pub_date": r["pub_date"], "count": r["count"]} for r in c.fetchall()]
